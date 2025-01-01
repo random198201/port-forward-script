@@ -44,12 +44,54 @@ sudo apt install -y nftables
 sudo systemctl enable nftables
 sudo systemctl start nftables
 
-#=== 询问端口与 IP ======================================================
+#=== 询问端口与 IP，增加简单的合法性检查 ===============================
+
+# 1) 询问本机端口 (LOCAL_PORT)
 echo
 echo "[3/6] 请输入端口转发相关信息："
-read -p "  本机端口 (例如 2222): " LOCAL_PORT
-read -p "  目标机器 IP (例如 6.6.6.6): " TARGET_IP
-read -p "  目标机器端口 (例如 6666): " TARGET_PORT
+while true; do
+  read -p "  本机端口 (1-65535, 例如 2222): " LOCAL_PORT
+  # 检查是否为数字 + 范围
+  if [[ "$LOCAL_PORT" =~ ^[0-9]+$ ]] && [ "$LOCAL_PORT" -ge 1 ] && [ "$LOCAL_PORT" -le 65535 ]; then
+    break
+  else
+    echo "  [错误] 端口输入不合法，请重新输入。"
+  fi
+done
+
+# 2) 询问目标机器 IP (TARGET_IP)
+#   这里仅做最简单的“4段0-255”检查，无法百分百判断合法IP，但能基本避免明显错误
+while true; do
+  read -p "  目标机器 IP (例如 6.6.6.6): " TARGET_IP
+  if [[ "$TARGET_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    # 进一步检查每段是否在0-255
+    VALID_IP="true"
+    IFS='.' read -r -a ip_parts <<< "$TARGET_IP"
+    for part in "${ip_parts[@]}"; do
+      if [ "$part" -lt 0 ] || [ "$part" -gt 255 ]; then
+        VALID_IP="false"
+        break
+      fi
+    done
+    if [ "$VALID_IP" = "true" ]; then
+      break
+    else
+      echo "  [错误] IP 段超出 0-255 范围，请重新输入。"
+    fi
+  else
+    echo "  [错误] IP 格式不正确，请重新输入。"
+  fi
+done
+
+# 3) 询问目标机器端口 (TARGET_PORT)
+while true; do
+  read -p "  目标机器端口 (1-65535, 例如 6666): " TARGET_PORT
+  if [[ "$TARGET_PORT" =~ ^[0-9]+$ ]] && [ "$TARGET_PORT" -ge 1 ] && [ "$TARGET_PORT" -le 65535 ]; then
+    break
+  else
+    echo "  [错误] 端口输入不合法，请重新输入。"
+  fi
+done
 
 #=== 开启内核转发 =======================================================
 echo
@@ -64,7 +106,9 @@ echo
 echo "[5/6] 写入 /etc/nftables.conf 并应用规则 (TCP/UDP) ..."
 
 # 备份原配置（可选）
-sudo cp /etc/nftables.conf /etc/nftables.conf.bak_$(date +%Y%m%d%H%M%S) || true
+if [ -f /etc/nftables.conf ]; then
+  sudo cp /etc/nftables.conf /etc/nftables.conf.bak_$(date +%Y%m%d%H%M%S)
+fi
 
 # 将你的转发规则写入 /etc/nftables.conf
 cat <<EOF | sudo tee /etc/nftables.conf
@@ -96,7 +140,6 @@ EOF
 # 加载新规则
 sudo nft -f /etc/nftables.conf
 
-#=== 检测并放行 UFW (可选) ==============================================
 echo
 echo "[6/6] 检测是否有 UFW，并尝试放行本机端口 ${LOCAL_PORT} ..."
 if command -v ufw >/dev/null 2>&1; then
@@ -117,4 +160,3 @@ echo "  重启后依然有效，可执行以下命令查看规则："
 echo "    sudo nft list ruleset"
 echo
 echo "===================================================================="
-Add initial port forward script
