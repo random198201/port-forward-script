@@ -53,7 +53,8 @@ echo
 echo "[3/6] 请输入端口转发相关信息："
 
 # 1) 本机端口
-read -p "  本机端口 (e.g. 2222): " LOCAL_PORT
+read -p "  本机端口 (e.g. 2222, 默认: 8080): " LOCAL_PORT
+LOCAL_PORT=${LOCAL_PORT:-8080} # 如果用户没有输入，则使用默认值 8080
 # 验证端口号
 if ! [[ "${LOCAL_PORT}" =~ ^[0-9]+$ ]] || (( LOCAL_PORT < 1 || LOCAL_PORT > 65535 )); then
     echo "[错误] 本机端口必须为 1 到 65535 之间的数字。"
@@ -61,7 +62,8 @@ if ! [[ "${LOCAL_PORT}" =~ ^[0-9]+$ ]] || (( LOCAL_PORT < 1 || LOCAL_PORT > 6553
 fi
 
 # 2) 目标机器 IP
-read -p "  目标机器 IP (e.g. 6.6.6.6): " TARGET_IP
+read -p "  目标机器 IP (e.g. 6.6.6.6, 默认: 127.0.0.1): " TARGET_IP
+TARGET_IP=${TARGET_IP:-127.0.0.1} # 如果用户没有输入，则使用默认值 127.0.0.1
 # 验证IP地址 (简单示例)
 if ! [[ "${TARGET_IP}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
   echo "[错误] 无效的目标IP地址。"
@@ -69,7 +71,8 @@ if ! [[ "${TARGET_IP}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; t
 fi
 
 # 3) 目标机器端口
-read -p "  目标机器端口 (e.g. 6666): " TARGET_PORT
+read -p "  目标机器端口 (e.g. 6666, 默认: 80): " TARGET_PORT
+TARGET_PORT=${TARGET_PORT:-80} # 如果用户没有输入，则使用默认值 80
 # 验证端口号
 if ! [[ "${TARGET_PORT}" =~ ^[0-9]+$ ]] || (( TARGET_PORT < 1 || TARGET_PORT > 65535 )); then
     echo "[错误] 目标机器端口必须为 1 到 65535 之间的数字。"
@@ -101,18 +104,18 @@ fi
 cat <<EOF | sudo tee "${NFTABLES_CONF}"
 #!/usr/sbin/nft -f
 
-# 清空 port_forwarding 表中的所有规则
+# 清空 ${TABLE_NAME} 表中的所有规则
 flush table ip ${TABLE_NAME}
 
-# 创建 port_forwarding 表
+# 创建 ${TABLE_NAME} 表
 table ip ${TABLE_NAME} {
 
     # 在 prerouting 链中进行 DNAT
     chain prerouting {
         type nat hook prerouting priority -100; policy accept;
-        # 转发 TCP 流量
+        # 转发 TCP 流量 (本机端口: ${LOCAL_PORT}, 目标IP: ${TARGET_IP}, 目标端口: ${TARGET_PORT})
         tcp dport ${LOCAL_PORT} dnat to ${TARGET_IP}:${TARGET_PORT}
-        # 转发 UDP 流量
+        # 转发 UDP 流量 (本机端口: ${LOCAL_PORT}, 目标IP: ${TARGET_IP}, 目标端口: ${TARGET_PORT})
         udp dport ${LOCAL_PORT} dnat to ${TARGET_IP}:${TARGET_PORT}
     }
 
@@ -122,6 +125,7 @@ table ip ${TABLE_NAME} {
 EOF
 
 if [[ "${USE_MASQUERADE}" =~ ^[Yy]$ ]]; then
+  echo "        # 对目标IP ${TARGET_IP} 进行 Masquerade" >> "${NFTABLES_CONF}"
   echo "        ip daddr ${TARGET_IP} masquerade" >> "${NFTABLES_CONF}"
 fi
 
